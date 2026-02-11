@@ -208,6 +208,7 @@ resource "azurerm_cdn_frontdoor_route" "route" {
   patterns_to_match      = ["/*"]
   supported_protocols    = ["Https"]
   forwarding_protocol    = "HttpsOnly"
-  https_redirect_enabled = true
+  https_redirect_enabled = false
   link_to_default_domain = true
 }
+
