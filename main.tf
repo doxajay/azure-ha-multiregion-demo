@@ -41,7 +41,7 @@ resource "azurerm_service_plan" "asp_secondary" {
   location            = azurerm_resource_group.rg_secondary.location
   resource_group_name = azurerm_resource_group.rg_secondary.name
   os_type             = "Linux"
-  sku_name            = "F1"
+  sku_name            = "S1"
 }
 
 ############################################
