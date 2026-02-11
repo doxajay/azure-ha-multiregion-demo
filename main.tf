@@ -105,82 +105,84 @@ resource "azurerm_mssql_database" "db_primary" {
 }
 
 ############################################
-# FRONT DOOR
-############################################
+# -----------------------------
+# Azure Front Door (Standard/Premium) - Correct schema for azurerm 3.x
+# -----------------------------
 
 resource "azurerm_cdn_frontdoor_profile" "afd_profile" {
-  name                = local.afd_profile_name
+  name                = "afd-${var.project_name}"
   resource_group_name = azurerm_resource_group.rg_primary.name
   sku_name            = "Standard_AzureFrontDoor"
 }
 
-resource "time_sleep" "wait_for_afd_profile" {
-  depends_on      = [azurerm_cdn_frontdoor_profile.afd_profile]
-  create_duration = "60s"
-}
-
 resource "azurerm_cdn_frontdoor_endpoint" "afd_endpoint" {
-  depends_on = [time_sleep.wait_for_afd_profile]
-  name       = local.afd_endpoint_name
-  profile_id = azurerm_cdn_frontdoor_profile.afd_profile.id
+  name                     = "ep-${var.project_name}"
+  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.afd_profile.id
+
+  enabled = true
 }
 
 resource "azurerm_cdn_frontdoor_origin_group" "og" {
-  depends_on = [azurerm_cdn_frontdoor_endpoint.afd_endpoint]
-  name       = local.og_name
-  profile_id = azurerm_cdn_frontdoor_profile.afd_profile.id
+  name                     = "og-${var.project_name}"
+  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.afd_profile.id
+
+  session_affinity_enabled = false
+
+  load_balancing {
+    sample_size                 = 4
+    successful_samples_required = 3
+  }
 
   health_probe {
-    interval_in_seconds = 60
+    interval_in_seconds = 120
     path                = "/"
     protocol            = "Https"
     request_type        = "GET"
   }
-
-  load_balancing {
-    additional_latency_in_milliseconds = 0
-    sample_size                        = 4
-    successful_samples_required        = 3
-  }
 }
 
 resource "azurerm_cdn_frontdoor_origin" "origin_primary" {
-  name                           = "origin-primary"
-  origin_group_id                = azurerm_cdn_frontdoor_origin_group.og.id
-  enabled                        = true
-  host_name                      = azurerm_linux_web_app.app_primary.default_hostname
-  http_port                      = 80
-  https_port                     = 443
-  origin_host_header             = azurerm_linux_web_app.app_primary.default_hostname
-  certificate_name_check_enabled = true
-  priority                       = 1
-  weight                         = 1000
+  name                          = "origin-primary"
+  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.og.id
+
+  host_name          = azurerm_linux_web_app.app_primary.default_hostname
+  http_port          = 80
+  https_port         = 443
+  origin_host_header = azurerm_linux_web_app.app_primary.default_hostname
+  priority           = 1
+  weight             = 100
+
+  enabled = true
 }
 
 resource "azurerm_cdn_frontdoor_origin" "origin_secondary" {
-  name                           = "origin-secondary"
-  origin_group_id                = azurerm_cdn_frontdoor_origin_group.og.id
-  enabled                        = true
-  host_name                      = azurerm_linux_web_app.app_secondary.default_hostname
-  http_port                      = 80
-  https_port                     = 443
-  origin_host_header             = azurerm_linux_web_app.app_secondary.default_hostname
-  certificate_name_check_enabled = true
-  priority                       = 2
-  weight                         = 1000
+  name                          = "origin-secondary"
+  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.og.id
+
+  host_name          = azurerm_linux_web_app.app_secondary.default_hostname
+  http_port          = 80
+  https_port         = 443
+  origin_host_header = azurerm_linux_web_app.app_secondary.default_hostname
+  priority           = 2
+  weight             = 100
+
+  enabled = true
 }
 
 resource "azurerm_cdn_frontdoor_route" "route" {
-  name                   = "route-${var.project}-${local.suffix}"
-  endpoint_id            = azurerm_cdn_frontdoor_endpoint.afd_endpoint.id
-  origin_group_id        = azurerm_cdn_frontdoor_origin_group.og.id
-  origin_ids             = [
+  name                          = "route-${var.project_name}"
+  cdn_frontdoor_endpoint_id     = azurerm_cdn_frontdoor_endpoint.afd_endpoint.id
+  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.og.id
+  cdn_frontdoor_origin_ids      = [
     azurerm_cdn_frontdoor_origin.origin_primary.id,
     azurerm_cdn_frontdoor_origin.origin_secondary.id
   ]
-  supported_protocols    = ["Http", "Https"]
+
   patterns_to_match      = ["/*"]
+  supported_protocols    = ["Http", "Https"]
   forwarding_protocol    = "HttpsOnly"
   link_to_default_domain = true
   https_redirect_enabled = true
+
+  enabled = true
 }
