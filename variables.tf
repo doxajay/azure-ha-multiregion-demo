@@ -27,3 +27,8 @@ variable "enable_sql_secondary" {
   type    = bool
   default = false
 }
+
+variable "project_name" {
+  description = "Short project/workload name used for naming resources (e.g., fcha-g08qgo)"
+  type        = string
+}
