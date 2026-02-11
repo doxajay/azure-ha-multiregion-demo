@@ -106,7 +106,7 @@ resource "azurerm_mssql_database" "db_primary" {
 
 ############################################
 # -----------------------------
-# Azure Front Door (Standard/Premium) - Correct schema for azurerm 3.x
+# Azure Front Door (Standard/Premium) - azurerm 3.x compatible
 # -----------------------------
 
 resource "azurerm_cdn_frontdoor_profile" "afd_profile" {
@@ -118,8 +118,7 @@ resource "azurerm_cdn_frontdoor_profile" "afd_profile" {
 resource "azurerm_cdn_frontdoor_endpoint" "afd_endpoint" {
   name                     = "ep-${var.project_name}"
   cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.afd_profile.id
-
-  enabled = true
+  enabled                  = true
 }
 
 resource "azurerm_cdn_frontdoor_origin_group" "og" {
@@ -145,28 +144,28 @@ resource "azurerm_cdn_frontdoor_origin" "origin_primary" {
   name                          = "origin-primary"
   cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.og.id
 
-  host_name          = azurerm_linux_web_app.app_primary.default_hostname
-  http_port          = 80
-  https_port         = 443
-  origin_host_header = azurerm_linux_web_app.app_primary.default_hostname
-  priority           = 1
-  weight             = 100
-
-  enabled = true
+  host_name                      = azurerm_linux_web_app.app_primary.default_hostname
+  origin_host_header              = azurerm_linux_web_app.app_primary.default_hostname
+  http_port                       = 80
+  https_port                      = 443
+  priority                        = 1
+  weight                          = 100
+  enabled                         = true
+  certificate_name_check_enabled  = true
 }
 
 resource "azurerm_cdn_frontdoor_origin" "origin_secondary" {
   name                          = "origin-secondary"
   cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.og.id
 
-  host_name          = azurerm_linux_web_app.app_secondary.default_hostname
-  http_port          = 80
-  https_port         = 443
-  origin_host_header = azurerm_linux_web_app.app_secondary.default_hostname
-  priority           = 2
-  weight             = 100
-
-  enabled = true
+  host_name                      = azurerm_linux_web_app.app_secondary.default_hostname
+  origin_host_header              = azurerm_linux_web_app.app_secondary.default_hostname
+  http_port                       = 80
+  https_port                      = 443
+  priority                        = 2
+  weight                          = 100
+  enabled                         = true
+  certificate_name_check_enabled  = true
 }
 
 resource "azurerm_cdn_frontdoor_route" "route" {
@@ -183,6 +182,7 @@ resource "azurerm_cdn_frontdoor_route" "route" {
   forwarding_protocol    = "HttpsOnly"
   link_to_default_domain = true
   https_redirect_enabled = true
-
-  enabled = true
+  enabled                = true
 }
+
+
