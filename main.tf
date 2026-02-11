@@ -10,205 +10,177 @@
 
 # Front Door routing to both apps
 
-resource "random_string" "suffix" {
-  length  = 6
-  special = false
-  upper   = false
-}
+############################################
+# RESOURCE GROUPS
+############################################
 
-locals {
-  suffix = random_string.suffix.result
-}
-
-# -------------------------
-# Resource Groups (2 regions)
-# -------------------------
 resource "azurerm_resource_group" "rg_primary" {
-  name     = "rg-fcha-ha-${local.suffix}-p"
-  location = var.primary_region
+  name     = local.rg_primary_name
+  location = var.primary_location
 }
 
 resource "azurerm_resource_group" "rg_secondary" {
-  name     = "rg-fcha-ha-${local.suffix}-s"
-  location = var.secondary_region
+  name     = local.rg_secondary_name
+  location = var.secondary_location
 }
 
-# -------------------------
-# App Service Plans
-# -------------------------
+############################################
+# APP SERVICE PLANS
+############################################
+
 resource "azurerm_service_plan" "asp_primary" {
-  name                = "asp-fcha-${local.suffix}-p"
-  resource_group_name = azurerm_resource_group.rg_primary.name
+  name                = local.asp_primary_name
   location            = azurerm_resource_group.rg_primary.location
+  resource_group_name = azurerm_resource_group.rg_primary.name
   os_type             = "Linux"
   sku_name            = "B1"
 }
 
 resource "azurerm_service_plan" "asp_secondary" {
-  name                = "asp-fcha-${local.suffix}-s"
-  resource_group_name = azurerm_resource_group.rg_secondary.name
+  name                = local.asp_secondary_name
   location            = azurerm_resource_group.rg_secondary.location
+  resource_group_name = azurerm_resource_group.rg_secondary.name
   os_type             = "Linux"
-  sku_name            = "B1"
+  sku_name            = "F1"
 }
 
-# -------------------------
-# Web Apps (Container-based demo app)
-# -------------------------
+############################################
+# WEB APPS
+############################################
+
 resource "azurerm_linux_web_app" "app_primary" {
-  name                = "app-fcha-${local.suffix}-p"
-  resource_group_name = azurerm_resource_group.rg_primary.name
+  name                = local.app_primary_name
   location            = azurerm_resource_group.rg_primary.location
+  resource_group_name = azurerm_resource_group.rg_primary.name
   service_plan_id     = azurerm_service_plan.asp_primary.id
 
-  site_config {
-    application_stack {
-      docker_image_name   = "traefik/whoami:latest"
-      docker_registry_url = "https://index.docker.io"
-    }
-  }
+  https_only = true
 
-  app_settings = {
-    WEBSITES_PORT = "80"
+  site_config {
+    always_on = true
+
+    application_stack {
+      docker_image_name   = "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
+      docker_registry_url = "https://mcr.microsoft.com"
+    }
   }
 }
 
 resource "azurerm_linux_web_app" "app_secondary" {
-  name                = "app-fcha-${local.suffix}-s"
-  resource_group_name = azurerm_resource_group.rg_secondary.name
+  name                = local.app_secondary_name
   location            = azurerm_resource_group.rg_secondary.location
+  resource_group_name = azurerm_resource_group.rg_secondary.name
   service_plan_id     = azurerm_service_plan.asp_secondary.id
 
-  site_config {
-    application_stack {
-      docker_image_name   = "traefik/whoami:latest"
-      docker_registry_url = "https://index.docker.io"
-    }
-  }
+  https_only = true
 
-  app_settings = {
-    WEBSITES_PORT = "80"
+  site_config {
+    always_on = false
+
+    application_stack {
+      docker_image_name   = "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
+      docker_registry_url = "https://mcr.microsoft.com"
+    }
   }
 }
 
-# -------------------------
-# Azure SQL Primary + Secondary + Failover Group
-# -------------------------
+############################################
+# SQL PRIMARY
+############################################
+
 resource "azurerm_mssql_server" "sql_primary" {
-  name                         = "sqlfcha${local.suffix}p"
+  name                         = local.sql_primary_name
   resource_group_name          = azurerm_resource_group.rg_primary.name
   location                     = azurerm_resource_group.rg_primary.location
   version                      = "12.0"
-  administrator_login          = "sqladminuser"
-  administrator_login_password = "ChangeMe!123456789"
-}
-
-resource "azurerm_mssql_server" "sql_secondary" {
-  name                         = "sqlfcha${local.suffix}s"
-  resource_group_name          = azurerm_resource_group.rg_secondary.name
-  location                     = azurerm_resource_group.rg_secondary.location
-  version                      = "12.0"
-  administrator_login          = azurerm_mssql_server.sql_primary.administrator_login
-  administrator_login_password = azurerm_mssql_server.sql_primary.administrator_login_password
+  administrator_login          = var.sql_admin_username
+  administrator_login_password = var.sql_admin_password
+  public_network_access_enabled = true
 }
 
 resource "azurerm_mssql_database" "db_primary" {
-  name      = "sqldb-fcha-${local.suffix}"
+  name      = local.db_name
   server_id = azurerm_mssql_server.sql_primary.id
   sku_name  = "Basic"
 }
 
-resource "azurerm_mssql_failover_group" "fg" {
-  name      = "fg-fcha-${local.suffix}"
-  server_id = azurerm_mssql_server.sql_primary.id
-  databases = [azurerm_mssql_database.db_primary.id]
+############################################
+# FRONT DOOR
+############################################
 
-  partner_server {
-    id = azurerm_mssql_server.sql_secondary.id
-  }
-
-  read_write_endpoint_failover_policy {
-    mode          = "Automatic"
-    grace_minutes = 60
-  }
-}
-
-# -------------------------
-# Azure Front Door (Standard)
-# -------------------------
 resource "azurerm_cdn_frontdoor_profile" "afd_profile" {
-  name                = "afd-fcha-${local.suffix}"
+  name                = local.afd_profile_name
   resource_group_name = azurerm_resource_group.rg_primary.name
   sku_name            = "Standard_AzureFrontDoor"
 }
 
+resource "time_sleep" "wait_for_afd_profile" {
+  depends_on      = [azurerm_cdn_frontdoor_profile.afd_profile]
+  create_duration = "60s"
+}
+
 resource "azurerm_cdn_frontdoor_endpoint" "afd_endpoint" {
-  name                     = "ep-fcha-${local.suffix}"
-  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.afd_profile.id
+  depends_on = [time_sleep.wait_for_afd_profile]
+  name       = local.afd_endpoint_name
+  profile_id = azurerm_cdn_frontdoor_profile.afd_profile.id
 }
 
 resource "azurerm_cdn_frontdoor_origin_group" "og" {
-  name                     = "og-fcha-${local.suffix}"
-  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.afd_profile.id
+  depends_on = [azurerm_cdn_frontdoor_endpoint.afd_endpoint]
+  name       = local.og_name
+  profile_id = azurerm_cdn_frontdoor_profile.afd_profile.id
 
   health_probe {
-    interval_in_seconds = 30
+    interval_in_seconds = 60
     path                = "/"
     protocol            = "Https"
     request_type        = "GET"
   }
 
   load_balancing {
-    sample_size                 = 4
-    successful_samples_required = 3
+    additional_latency_in_milliseconds = 0
+    sample_size                        = 4
+    successful_samples_required        = 3
   }
 }
 
 resource "azurerm_cdn_frontdoor_origin" "origin_primary" {
-  name                          = "origin-primary"
-  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.og.id
-  enabled                       = true
-
-  host_name          = azurerm_linux_web_app.app_primary.default_hostname
-  http_port          = 80
-  https_port         = 443
-  origin_host_header = azurerm_linux_web_app.app_primary.default_hostname
-
+  name                           = "origin-primary"
+  origin_group_id                = azurerm_cdn_frontdoor_origin_group.og.id
+  enabled                        = true
+  host_name                      = azurerm_linux_web_app.app_primary.default_hostname
+  http_port                      = 80
+  https_port                     = 443
+  origin_host_header             = azurerm_linux_web_app.app_primary.default_hostname
   certificate_name_check_enabled = true
-
-  priority = 1
-  weight   = 50
+  priority                       = 1
+  weight                         = 1000
 }
 
 resource "azurerm_cdn_frontdoor_origin" "origin_secondary" {
-  name                          = "origin-secondary"
-  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.og.id
-  enabled                       = true
-
-  host_name          = azurerm_linux_web_app.app_secondary.default_hostname
-  http_port          = 80
-  https_port         = 443
-  origin_host_header = azurerm_linux_web_app.app_secondary.default_hostname
-
+  name                           = "origin-secondary"
+  origin_group_id                = azurerm_cdn_frontdoor_origin_group.og.id
+  enabled                        = true
+  host_name                      = azurerm_linux_web_app.app_secondary.default_hostname
+  http_port                      = 80
+  https_port                     = 443
+  origin_host_header             = azurerm_linux_web_app.app_secondary.default_hostname
   certificate_name_check_enabled = true
-
-  priority = 1
-  weight   = 50
+  priority                       = 2
+  weight                         = 1000
 }
 
 resource "azurerm_cdn_frontdoor_route" "route" {
-  name                          = "route-all"
-  cdn_frontdoor_endpoint_id     = azurerm_cdn_frontdoor_endpoint.afd_endpoint.id
-  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.og.id
-  cdn_frontdoor_origin_ids = [
+  name                   = "route-${var.project}-${local.suffix}"
+  endpoint_id            = azurerm_cdn_frontdoor_endpoint.afd_endpoint.id
+  origin_group_id        = azurerm_cdn_frontdoor_origin_group.og.id
+  origin_ids             = [
     azurerm_cdn_frontdoor_origin.origin_primary.id,
     azurerm_cdn_frontdoor_origin.origin_secondary.id
   ]
-
+  supported_protocols    = ["Http", "Https"]
   patterns_to_match      = ["/*"]
-  supported_protocols    = ["Https"]
   forwarding_protocol    = "HttpsOnly"
-  https_redirect_enabled = false
   link_to_default_domain = true
+  https_redirect_enabled = true
 }
-
